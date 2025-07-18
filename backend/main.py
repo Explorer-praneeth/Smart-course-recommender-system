@@ -12,6 +12,47 @@ from sklearn.metrics.pairwise import cosine_similarity
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import logging
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+app = FastAPI()
+
+# Allow frontend to access API (CORS fix)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace "*" with frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Load your course dataset
+df = pd.read_csv("course_data.csv")
+
+# ML Preprocessing
+vectorizer = TfidfVectorizer()
+tfidf_matrix = vectorizer.fit_transform(df['Description'])
+
+# Request body structure
+class RecommendationRequest(BaseModel):
+    interest: str
+    skill: str
+    duration: str
+    course_type: str
+
+@app.post("/recommend")
+async def recommend(request: RecommendationRequest):
+    query = f"{request.interest} {request.skill} {request.duration} {request.course_type}"
+    query_vec = vectorizer.transform([query])
+    similarities = cosine_similarity(query_vec, tfidf_matrix).flatten()
+    indices = similarities.argsort()[-5:][::-1]
+
+    recommendations = df.iloc[indices][['Title', 'Platform', 'Duration', 'Skill Level', 'Type', 'Link']].to_dict(orient="records")
+    return {"recommendations": recommendations}
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
